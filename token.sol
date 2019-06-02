@@ -1,14 +1,5 @@
 pragma solidity 0.5.7;
 
-/**
- *  ETH ERC20 contract with managin admin authorities.
- Author : Ray OShow
- brief: 
-    It referred from azi's code based on open zeppin (https://github.com/sikyaNQ/final-token/blob/master/Final)
-    I mergerd all of authorities to  one contract to reduce storage and gas.
-    And I have been trying to minimalize source code for easily reading.
- */
- 
 // ERC20 declare
 contract IERC20 {
   function totalSupply() public view returns (uint256);
@@ -19,7 +10,38 @@ contract IERC20 {
   function approve(address spender, uint256 value) public returns (bool);
   event Transfer(address indexed from, address indexed to, uint256 value);
   event Approval(address indexed owner, address indexed spender, uint256 value);
-  event Burn(address indexed burner, uint256 value);
+}
+
+// SafeMath
+library SafeMath {
+  function mul(uint256 a, uint256 b) internal pure returns (uint256) {
+    if (a == 0 || b == 0) {
+      return 0;
+    }
+
+    uint256 c = a * b;
+    assert(c / a == b);
+    return c;
+  }
+
+  function div(uint256 a, uint256 b) internal pure returns (uint256) {
+    // assert(b > 0); // Solidity automatically throws when dividing by 0
+    uint256 c = a / b;
+    // assert(a == b * c + a % b); // There is no case in which this doesn't hold
+    return c;
+  }
+
+  function sub(uint256 a, uint256 b) internal pure returns (uint256) {
+    assert(b <= a);
+    return a - b;
+  }
+
+  function add(uint256 a, uint256 b) internal pure returns (uint256) {
+    uint256 c = a + b;
+    assert(c >= a); // overflow check
+    return c;
+  }
+ 
 }
 
 /**
@@ -34,10 +56,11 @@ contract AdminRole {
     
     mapping (address => uint8) private _admin;
     
-    uint8 public _adminRoleSuper = 0x01;  // burn, lock , add account
-    uint8 public _adminRolePauser = 0x02; // pause    
-    uint8 public _adminRoleMint = 0x04;   // mint   
-    uint8 public _totalAuthoriesVal = _adminRoleSuper+_adminRolePauser+_adminRoleMint;
+    uint8 internal _adminRoleSuper = 0x01;  // burn, lock , add account
+    uint8 internal _adminRolePauser = 0x02; // pause    
+    uint8 internal _adminRoleMinter = 0x04;   // mint   
+    uint8 internal _adminRoleLocker = 0x08;   // mint
+    uint8 internal _totalAuthoriesVal = _adminRoleSuper+_adminRolePauser+_adminRoleMinter+_adminRoleLocker;
     
     // using Roles for Roles.Role;
     // Roles.Role private _admin;
@@ -57,7 +80,12 @@ contract AdminRole {
     }
     
     modifier onlyMinter() {
-        require((_admin[msg.sender] & _adminRoleMint) > 0);        
+        require((_admin[msg.sender] & _adminRoleMinter) > 0);        
+        _;
+    }
+    
+    modifier onlyLocker() {
+        require((_admin[msg.sender] & _adminRoleLocker) > 0);        
         _;
     }
  
@@ -82,17 +110,23 @@ contract AdminRole {
     
 }
 
+
 // ERC20 functions
 contract ERC20 is IERC20, AdminRole {
+    // Library
     using SafeMath for uint256;
 
     mapping (address => uint256) private _balances;
-    mapping(address => bool) internal locks;
     mapping (address => mapping (address => uint256)) private _allowed;
+
     
-    uint256 public Max_supply = 10000000000 * (10 **18);
+    uint256 private _max_supply;
     uint256 private _totalSupply;
 
+    constructor (uint256 max_supply) public {
+        _max_supply = max_supply;
+    }
+    
     function totalSupply() public view returns (uint256) {
         return _totalSupply;
     }
@@ -112,7 +146,6 @@ contract ERC20 is IERC20, AdminRole {
     
     function _transfer(address from, address to, uint256 value) internal {
         require(to != address(0));
-        require(locks[msg.sender] == false);
         _balances[from] = _balances[from].sub(value);
         _balances[to] = _balances[to].add(value);
         emit Transfer(from, to, value);
@@ -149,12 +182,14 @@ contract ERC20 is IERC20, AdminRole {
 
     function _mint(address account, uint256 value) internal {
         require(account != address(0));
-        require(Max_supply > _totalSupply);
+        require(_max_supply > _totalSupply);
         _totalSupply = _totalSupply.add(value);
         _balances[account] = _balances[account].add(value);
         emit Transfer(address(0), account, value);
     }
     
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // Burn
     function burn(address from, uint256 value) public {
         _burn(from, value);
     }
@@ -164,73 +199,21 @@ contract ERC20 is IERC20, AdminRole {
         
         _totalSupply = _totalSupply.sub(value);
         _balances[account] = _balances[account].sub(value);
-        emit Transfer(account, address(0), value);
     }
-    
-    function lock(address _owner) public onlySuper returns (bool) {
-        require(locks[_owner] == false);
-        locks[_owner] = true;
-        return true;
-    }
-
-    function unlock(address _owner) public onlySuper returns (bool) {
-        require(locks[_owner] == true);
-        locks[_owner] = false;
-        return true;
-    }
-
-    function showLockState(address _owner) public view returns (bool) {
-        return locks[_owner];
-    }
+    //////////////////////////////////////////////////////////////////////////////////////////////    
 }
 
-// SafeMath
-library SafeMath {
-  function mul(uint256 a, uint256 b) internal pure returns (uint256) {
-    if (a == 0 || b == 0) {
-      return 0;
-    }
-
-    uint256 c = a * b;
-    assert(c / a == b);
-    return c;
-  }
-
-  function div(uint256 a, uint256 b) internal pure returns (uint256) {
-    // assert(b > 0); // Solidity automatically throws when dividing by 0
-    uint256 c = a / b;
-    // assert(a == b * c + a % b); // There is no case in which this doesn't hold
-    return c;
-  }
-
-  function sub(uint256 a, uint256 b) internal pure returns (uint256) {
-    assert(b <= a);
-    return a - b;
-  }
-
-  function add(uint256 a, uint256 b) internal pure returns (uint256) {
-    uint256 c = a + b;
-    assert(c >= a); // overflow check
-    return c;
-  }
-  
-  function max(uint256 a, uint256 b) internal pure returns (uint256) {
-        return a >= b ? a : b;
-  }
-
-  function min(uint256 a, uint256 b) internal pure returns (uint256) {
-        return a < b ? a : b;
-  }
+/**
+ * Extension 
+ * 
+ * pause / mint / lock 
+ * 
+ */
+contract ERC20Extension is ERC20 {
     
-  function average(uint256 a, uint256 b) internal pure returns (uint256) {
-        return (a / 2) + (b / 2) + ((a % 2 + b % 2) / 2);
-  }
-}
-
-
-contract ERC20Pausable is ERC20 {
-    
-    function transfer(address to, uint256 value) public whenNotPaused returns (bool) {
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // Override public funcs
+    function transfer(address to, uint256 value) public whenNotPaused whenNotLocked returns (bool) {
         return super.transfer(to, value);
     }
 
@@ -249,17 +232,23 @@ contract ERC20Pausable is ERC20 {
     function decreaseAllowance(address spender, uint subtractedValue) public whenNotPaused returns (bool) {
         return super.decreaseAllowance(spender, subtractedValue);
     }
+    //////////////////////////////////////////////////////////////////////////////////////////////
     
-    event Paused(address account);
-    event Unpaused(address account);
-
-    // bool private _paused;
-    bool public _paused;
-
-    constructor () internal {
-        _paused = false;
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // Mint
+    
+    function mint(address to, uint256 value) public onlyMinter returns (bool) {
+        _mint(to, value);
+        return true;
     }
+    //////////////////////////////////////////////////////////////////////////////////////////////    
     
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // Pause 
+    
+    bool private _paused = false;
+
+    // Get pause stat
     function paused() public view returns (bool) {
         return _paused;
     }
@@ -276,33 +265,55 @@ contract ERC20Pausable is ERC20 {
 
     function pause() public onlyPauser whenNotPaused {
         _paused = true;
-        emit Paused(msg.sender);
     }
 
     function unpause() public onlyPauser whenPaused {
         _paused = false;
-        emit Unpaused(msg.sender);
     }
-}
-
-
-contract ERC20Mintable is ERC20 {
-    function mint(address to, uint256 value) public onlyMinter returns (bool) {
-        _mint(to, value);
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    // Lock 
+    
+    // lock account info
+    mapping(address => bool) internal locks;
+    
+    // Lock up address
+    function lock(address _owner) public onlyLocker returns (bool) {
+        require(locks[_owner] == false);
+        locks[_owner] = true;
         return true;
     }
+
+    // Unlock address
+    function unlock(address _owner) public onlyLocker returns (bool) {
+        require(locks[_owner] == true);
+        locks[_owner] = false;
+        return true;
+    }
+
+    // Show locking status.
+    function showLockState(address _owner) public view returns (bool) {
+        return locks[_owner];
+    }
+    
+    modifier whenNotLocked() {
+        require(locks[msg.sender] == false); 
+        _;
+    }
+    //////////////////////////////////////////////////////////////////////////////////////////////
 }
 
 
 // Token main contract
-contract token is ERC20, ERC20Pausable, ERC20Mintable {
-    
+contract token is ERC20Extension {
     string public constant name = "rayOshow";
     string public constant symbol = "ray";
-    uint8 public constant decimals = 18;
-    uint256 public constant INITIAL_SUPPLY = 100000 * (10 ** uint256(decimals));
+    uint8 public constant decimals = 4;
+    uint256 public constant initial_supply = 10000 * (10 ** uint256(decimals));
+    uint256 public constant max_supply = 20000 * (10 ** uint256(decimals));    
 
-    constructor () public {
-        _mint(msg.sender, INITIAL_SUPPLY);
+    constructor () public ERC20(max_supply){
+        _mint(msg.sender, initial_supply);
     }
 }
