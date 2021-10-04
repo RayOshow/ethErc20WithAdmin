@@ -8,4 +8,4 @@ I merged all authorities to one contract to save storage and improve readability
 I would be trying to update this source for saving gas. :)
 
 #Updated
- - solidy 0.8.9 
+ - solidity 0.8.9 
